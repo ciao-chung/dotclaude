@@ -1,0 +1,44 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude Code — 本機 / 含敏感資訊，不公開
+.claude/settings.local.json
+.claude/projects/
+.claude/todos/
+.claude/statsig/
+.claude/shell-snapshots/
+.claude/ide/
+.claude/plans/
+.claude/article-memo/
+.playwright-mcp/
+.superpowers/
+
+# MCP 認證 / Token
+.mcp.json
+**/.env
+**/.env.local
+**/*.key
+**/*.pem
+
+# Logs
+*.log
+logs/
+
+# Node
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
