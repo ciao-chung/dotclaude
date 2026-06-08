@@ -18,7 +18,9 @@
 
 ```
 .claude/
-└── statusline.sh    # 自製 statusline，顯示模型 / context / rate limit / git 狀態
+├── statusline.sh    # 自製 statusline，顯示模型 / context / rate limit / git 狀態
+├── hooks/           # Stop / Notification 通知 dispatcher（macOS / Discord / Slack）
+└── rules/           # Project-level rules（git 操作同意規範等）
 ```
 
 更多 skill 與 rule 會視整理進度陸續加入。
@@ -93,6 +95,102 @@ which claude
 ```
 
 或直接改成 `claude`（依 `$PATH` 查找，多數情況可用）。
+
+## hooks/notify — Stop / Notification 通知
+
+### 它做什麼
+
+Claude Code 對話跑完（`Stop`）或需要使用者注意（`Notification`，例如等待 permission prompt）時自動跳通知。預設打到 macOS 桌面，可同時打到 Discord / Slack。
+
+範例：
+
+- ✅ macOS 桌面通知：標題 `Claude Code`、副標題 `dotclaude — 已完成`，內文是 AI 最後回覆切到 50 字的摘要。
+- ⚠️ 需要核准時：副標題 `dotclaude — 需要核准`。
+- Discord / Slack：第一行 `dotclaude ✅ 已完成`，第二行摘要（預設 500 字內，超過自動斷句）。
+
+### 架構
+
+`notify.py` 是 dispatcher，依 `.env` 的 `CLAUDE_NOTIFY_CHANNELS` 派發到 `notify_channels/*.py`。每個 channel 是獨立 Python 子程序，5 秒 timeout、失敗 silent、永遠 exit 0，不會卡住 Claude Code。
+
+```
+.claude/hooks/
+├── notify.py            # entry point（settings.json hook 指向這裡）
+├── .env.example         # 設定範本
+├── notify_lib/          # 共用工具（payload 規格化 / .env parser / 斷句截斷）
+└── notify_channels/
+    ├── macos.py
+    ├── discord.py
+    └── slack.py
+```
+
+### 怎麼用
+
+#### 1. 複製到 `~/.claude/hooks/`
+
+```bash
+cp -R .claude/hooks ~/.claude/hooks && chmod +x ~/.claude/hooks/notify.py ~/.claude/hooks/notify_channels/*.py
+```
+
+#### 2. 編輯 `~/.claude/settings.json` 註冊 hook
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "python3 ~/.claude/hooks/notify.py" }] }
+    ],
+    "Notification": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "python3 ~/.claude/hooks/notify.py" }] }
+    ]
+  }
+}
+```
+
+> 若是放在某 project 內（如本 repo 的 `.claude/settings.json`），路徑用 `"$CLAUDE_PROJECT_DIR"/.claude/hooks/notify.py`。
+
+#### 3. 啟用想要的 channel
+
+```bash
+cp ~/.claude/hooks/.env.example ~/.claude/hooks/.env
+```
+
+開啟 `.env`，把 `CLAUDE_NOTIFY_CHANNELS` 改成想啟用的（逗號分隔），需要的話填入 webhook：
+
+```bash
+CLAUDE_NOTIFY_CHANNELS=macos,discord
+CLAUDE_PROJECT_NAME=dotclaude      # 不設則用目錄名
+CLAUDE_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/xxxxx/yyyyy
+```
+
+存檔後重啟 Claude Code，下次對話結束就會收到通知。
+
+### Channel 速覽
+
+| Channel | 必填環境變數 | 備註 |
+|---------|------------|------|
+| `macos` | （無） | 用 `osascript`；Docker container 內 fallback 打到 `host.docker.internal:9999/notify`（host 需自架 notify-server） |
+| `discord` | `CLAUDE_DISCORD_WEBHOOK_URL` | 沒填則 silent skip；已自訂 User-Agent 規避 Discord 對 `Python-urllib` 的 403 |
+| `slack` | `CLAUDE_SLACK_WEBHOOK_URL` | 沒填則 silent skip |
+
+各 channel 的訊息長度上限可用 `CLAUDE_NOTIFY_<CHANNEL>_MAX_LEN` 覆寫（預設：macOS 50 / Discord 500 / Slack 500），超過會在句末符號 / 換行 / 逗號 / 空白等自然斷點切斷。
+
+### 本機測試
+
+不用實際跑 Claude Code 也能驗證 dispatch：
+
+```bash
+echo '{"hook_event_name":"Stop","last_assistant_message":"hello"}' | CLAUDE_PROJECT_DIR="$PWD" python3 .claude/hooks/notify.py
+```
+
+### 進階：新增 channel
+
+放一支 `notify_channels/<name>.py`，name 須符合 `^[a-z0-9_-]+$`：
+
+- 開頭 `sys.path.insert(0, str(Path(__file__).resolve().parent.parent))` 才能 import `notify_lib`
+- 從 stdin 讀 JSON（型別見 `notify_lib/payload.py` 的 `NotifyMessage`）
+- 缺設定時 silent return、永遠 `sys.exit(0)`，不可阻塞 Stop hook
+
+然後把 `<name>` 加進 `.env` 的 `CLAUDE_NOTIFY_CHANNELS`。
 
 ## License
 
