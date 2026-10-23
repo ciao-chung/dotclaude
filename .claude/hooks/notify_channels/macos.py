@@ -50,7 +50,18 @@ def _send_osascript(title: str, subtitle: str, message: str) -> bool:
         return False
 
 
+def _read_notify_token() -> str:
+    """host 端 notify-server.mjs 產生的 token；sandbox 以 HOME=host 家目錄掛載 ~/.claude。"""
+    try:
+        return (Path.home() / ".claude" / "notify-relay-token").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def _send_notify_server(title: str, subtitle: str, message: str) -> bool:
+    token = _read_notify_token()
+    if not token:
+        return False
     payload = json.dumps(
         {"title": title, "message": message, "subtitle": subtitle},
         ensure_ascii=False,
@@ -58,7 +69,7 @@ def _send_notify_server(title: str, subtitle: str, message: str) -> bool:
     req = urllib.request.Request(
         _NOTIFY_SERVER_URL,
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "X-Notify-Token": token},
         method="POST",
     )
     try:
